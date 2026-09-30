@@ -7,6 +7,8 @@ informação/informacional -> nodalidade; financeiro -> tesouro;
 organizacional -> organização.
 """
 
+import re
+
 CRITERIOS_DIRETOS = {
     "Substantivo e nodalidade": [
         "transparência",
@@ -389,3 +391,59 @@ CRITERIOS_DIRETOS = {
         "simplificação do procedimento de licenciamento ambiental",
     ],
 }
+
+# --- GENERALIZAÇÃO DE TERMOS QUE MENCIONAM ESTADOS ---
+# Quando um termo cita um estado (nome ou gentílico), só a parte anterior à menção
+# é usada na busca. Ex.: "Fórum Paraense de Mudanças Climáticas" -> "Fórum";
+# "Corpo de Bombeiros do Estado do Amapá" -> "Corpo de Bombeiros".
+# A regra é aplicada automaticamente a todos os termos, inclusive os adicionados no futuro.
+ESTADOS = [
+    "Acre", "Alagoas", "Amapá", "Amazonas", "Bahia", "Ceará", "Distrito Federal",
+    "Espírito Santo", "Goiás", "Maranhão", "Mato Grosso do Sul", "Mato Grosso",
+    "Minas Gerais", "Pará", "Paraíba", "Paraná", "Pernambuco", "Piauí",
+    "Rio de Janeiro", "Rio Grande do Norte", "Rio Grande do Sul", "Rondônia",
+    "Roraima", "Santa Catarina", "São Paulo", "Sergipe", "Tocantins",
+]
+GENTILICOS = [
+    "acrean", "alagoan", "amapaense", "amazonense", "baian", "cearense", "brasiliense",
+    "capixaba", "goian", "maranhense", "sul-mato-grossense", "mato-grossense",
+    "paraense", "paraiban", "paranaense", "pernambucan", "piauiense", "fluminense",
+    "potiguar", "gaúch", "rondoniense", "roraimense", "catarinense", "paulista",
+    "sergipan", "tocantinense",
+]
+_PADRAO_ESTADO = re.compile(
+    r"(?<![\w-])(?:" + "|".join(re.escape(e) for e in ESTADOS) + r")(?![\w-])"
+    r"|(?<![\w-])(?:" + "|".join(re.escape(g) for g in GENTILICOS) + r")[aeo]?s?(?![\w-])",
+    re.IGNORECASE,
+)
+# Conectivos que sobram no fim do termo após o corte (ex.: "... do Estado do")
+_SOBRA_FINAL = re.compile(r"(?:\s+(?:do|da|de|dos|das|o|a)|\s+estado|\s*[-–“”\"(,])+\s*$", re.IGNORECASE)
+
+
+def generalizar_estados(termo):
+    """Remove a menção a um estado e tudo o que vem depois dela."""
+    menção = _PADRAO_ESTADO.search(termo)
+    if not menção:
+        return termo
+    antes = termo[:menção.start()]
+    while True:
+        limpo = _SOBRA_FINAL.sub("", antes)
+        if limpo == antes:
+            break
+        antes = limpo
+    return antes.strip() or termo
+
+
+def _generalizar_criterios(criterios):
+    resultado = {}
+    for categoria, termos in criterios.items():
+        vistos, lista = set(), []
+        for termo in map(generalizar_estados, termos):
+            if termo.lower() not in vistos:
+                vistos.add(termo.lower())
+                lista.append(termo)
+        resultado[categoria] = lista
+    return resultado
+
+
+CRITERIOS_DIRETOS = _generalizar_criterios(CRITERIOS_DIRETOS)

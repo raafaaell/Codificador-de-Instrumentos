@@ -7,7 +7,7 @@ import re
 from criterios import CRITERIOS_DIRETOS
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Analisador de Normativas PMC", layout="wide")
+st.set_page_config(page_title="Codificador de Instrumentos", layout="wide")
 
 # O SEU DICIONÁRIO DE CRITÉRIOS (ver criterios.py)
 
@@ -16,7 +16,7 @@ def processar_texto_multiplas_categorias(texto, nome_arquivo):
     # Normaliza quebras de linha e espaços do PDF para que termos longos sejam encontrados
     texto = re.sub(r"\s+", " ", texto).lower()
     registros = []
-    
+
     for chave_categoria, palavras in CRITERIOS_DIRETOS.items():
         # Separa a condição e a categoria (ex: Substantivo e Tesouro)
         if " e " in chave_categoria:
@@ -29,74 +29,95 @@ def processar_texto_multiplas_categorias(texto, nome_arquivo):
             if contagem > 0:
                 registros.append({
                     "Arquivo": nome_arquivo,
-                    "Condição": condicao.capitalize(),   
-                    "Categoria": subcategoria.capitalize(), 
+                    "Condição": condicao.capitalize(),
+                    "Categoria": subcategoria.capitalize(),
                     "Termo Encontrado": palavra,
                     "Contagem": contagem
                 })
     return registros
 
 # --- INTERFACE VISUAL ---
-st.title("📂 Analisador de Normativas")
-st.write("Selecione os arquivos PDF para processamento em lote.")
+st.title("🛡️ Codificador de Instrumentos")
+st.write("Selecione os arquivos PDF para processamento em lote e geração de estatísticas.")
 
-# Seletor de arquivos (substitui a pasta local fixa)
+# Seletor de arquivos
 uploaded_files = st.file_uploader("Suba seus arquivos PDF aqui", type="pdf", accept_multiple_files=True)
 
 if uploaded_files:
-    if st.button("Iniciar Análise"):
+    if st.button("🚀 Iniciar Análise"):
         resultados_gerais = []
-        
+
         # Barra de progresso visual
         progresso = st.progress(0)
-        
+
         for i, uploaded_file in enumerate(uploaded_files):
             try:
-                # Lê o PDF diretamente da memória (não precisa salvar no disco)
                 reader = PdfReader(uploaded_file)
                 texto = " ".join([p.extract_text() for p in reader.pages if p.extract_text()])
-                
-                # Executa a sua análise
+
                 dados = processar_texto_multiplas_categorias(texto, uploaded_file.name)
                 if dados:
                     resultados_gerais.extend(dados)
-                
-                # Atualiza barra de progresso
+
                 progresso.progress((i + 1) / len(uploaded_files))
-                
+
             except Exception as e:
                 st.error(f"Erro ao ler {uploaded_file.name}: {e}")
 
         # --- EXIBIÇÃO DOS RESULTADOS ---
         if resultados_gerais:
             df = pd.DataFrame(resultados_gerais)
-            
-            st.divider()
-            st.success(f"Análise concluída! {len(df)} ocorrências encontradas.")
-            
-            # Mostra uma prévia na tela
-            st.subheader("Prévia dos Dados")
-            st.dataframe(df.head(10), use_container_width=True)
 
-            # --- GERAÇÃO DO EXCEL PARA DOWNLOAD ---
-            # Criamos os resumos conforme seu código original
+            st.divider()
+            st.success(f"✅ Análise concluída! {len(df)} termos identificados no total.")
+
+            # --- CÁLCULO DAS ESTATÍSTICAS ---
+            # 1. Contagem por Condição (Substantivo vs Procedimental)
             resumo_condicao = df['Condição'].value_counts().reset_index()
-            resumo_condicao.columns = ['Condição', 'Qtd Termos Encontrados']
-            
+            resumo_condicao.columns = ['Condição', 'Total']
+
+            # 2. Contagem por Categoria (Nodalidade, Autoridade, Tesouro, Organização)
+            resumo_categoria = df['Categoria'].value_counts().reset_index()
+            resumo_categoria.columns = ['Tipo (Categoria)', 'Total']
+
+            # 3. Contagem Cruzada (Matriz Condição x Categoria)
             resumo_cruzado = df.groupby(['Condição', 'Categoria']).size().reset_index(name='Quantidade')
 
-            # Salva o Excel em um "buffer" na memória (essencial para Web/Mac/Windows)
+            # --- EXIBIÇÃO NA TELA EM COLUNAS ---
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.subheader("📌 Por Condição")
+                st.dataframe(resumo_condicao, use_container_width=True, hide_index=True)
+
+            with col2:
+                st.subheader("🏷️ Por Tipo")
+                st.dataframe(resumo_categoria, use_container_width=True, hide_index=True)
+
+            with col3:
+                st.subheader("🔄 Cruzamento")
+                st.dataframe(resumo_cruzado, use_container_width=True, hide_index=True)
+
+            # --- DOWNLOAD DO EXCEL ---
+            st.divider()
+            st.subheader("💾 Exportar Resultados")
+
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, sheet_name="Detalhado", index=False)
-                resumo_condicao.to_excel(writer, sheet_name="Totais por Condição", index=False)
+                df.to_excel(writer, sheet_name="Dados Detalhados", index=False)
+                resumo_condicao.to_excel(writer, sheet_name="Resumo Condição", index=False)
+                resumo_categoria.to_excel(writer, sheet_name="Resumo Tipos", index=False)
                 resumo_cruzado.to_excel(writer, sheet_name="Matriz Cruzada", index=False)
-            
+
             st.download_button(
                 label="📥 Baixar Relatório Excel Completo",
                 data=output.getvalue(),
-                file_name="Relatorio_Analise_Normativas.xlsx",
+                file_name="Relatorio_Codificacao_Instrumentos.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
+
+            # Mostrar os dados brutos no final para conferência
+            with st.expander("Ver lista completa de termos encontrados"):
+                st.write(df)
         else:
-            st.warning("Nenhum termo foi encontrado nos arquivos enviados.")
+            st.warning("Nenhum termo dos critérios foi encontrado nos arquivos enviados.")
